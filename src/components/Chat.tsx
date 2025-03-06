@@ -17,7 +17,7 @@ const Chat: React.FC = () => {
     <div className="flex flex-col h-full">
       <div className="p-4 border-b border-border/50 flex justify-between items-center">
         <div>
-          <h1 className="text-xl font-semibold">MQTT Chat</h1>
+          <h1 className="text-xl font-semibold">Afira Pirata Chat</h1>
           <p className="text-sm text-muted-foreground">You are chatting as <span className="font-medium">{currentUser.nickname}</span></p>
         </div>
         <div className="flex items-center gap-2">

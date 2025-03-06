@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import mqtt from 'mqtt';
@@ -7,11 +8,15 @@ const MQTT_BROKER = 'wss://broker.hivemq.com:8884/mqtt';
 const CHAT_TOPIC = 'lovable-chat/public';
 const USERS_TOPIC = 'lovable-chat/users';
 
+type MessageType = 'text' | 'image';
+
 type Message = {
   id: string;
   nickname: string;
   text: string;
   timestamp: number;
+  type: MessageType;
+  imageData?: string;  // Base64 encoded image
 };
 
 type User = {
@@ -24,6 +29,7 @@ type ChatContextType = {
   users: User[];
   currentUser: User | null;
   sendMessage: (text: string) => void;
+  sendImage: (imageData: string) => void;
   setNickname: (nickname: string) => void;
   connectionStatus: 'connecting' | 'connected' | 'disconnected';
 };
@@ -82,6 +88,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           nickname: 'System',
           text: `You joined the chat as ${user.nickname}`,
           timestamp: Date.now(),
+          type: 'text',
         };
         setMessages((prevMessages) => [...prevMessages, welcomeMessage]);
       });
@@ -99,6 +106,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     nickname: 'System',
                     text: `${data.user.nickname} joined the chat`,
                     timestamp: Date.now(),
+                    type: 'text',
                   };
                   setMessages((prevMessages) => [...prevMessages, joinMessage]);
                   
@@ -107,13 +115,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 return prevUsers;
               });
             }
-          } else if (topic === CHAT_TOPIC && data.type === 'message') {
+          } else if (topic === CHAT_TOPIC && (data.type === 'message' || data.type === 'image')) {
             if (data.senderId !== user.id) {
               const newMessage: Message = {
                 id: data.id,
                 nickname: data.nickname,
-                text: data.text,
+                text: data.text || '',
                 timestamp: data.timestamp,
+                type: data.messageType,
+                imageData: data.imageData,
               };
               setMessages((prevMessages) => [...prevMessages, newMessage]);
             }
@@ -160,17 +170,47 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       nickname: currentUser.nickname,
       text,
       timestamp: Date.now(),
+      type: 'text',
     };
     
     setMessages((prevMessages) => [...prevMessages, newMessage]);
     
     const messageData = {
       type: 'message',
+      messageType: 'text',
       id: newMessage.id,
       senderId: currentUser.id,
       nickname: currentUser.nickname,
       text: newMessage.text,
       timestamp: newMessage.timestamp,
+    };
+    
+    clientRef.current.publish(CHAT_TOPIC, JSON.stringify(messageData));
+  };
+
+  const sendImage = (imageData: string) => {
+    if (!currentUser || !clientRef.current || !clientRef.current.connected) return;
+    
+    const newMessage: Message = {
+      id: crypto.randomUUID(),
+      nickname: currentUser.nickname,
+      text: '📷 Image',
+      timestamp: Date.now(),
+      type: 'image',
+      imageData,
+    };
+    
+    setMessages((prevMessages) => [...prevMessages, newMessage]);
+    
+    const messageData = {
+      type: 'message',
+      messageType: 'image',
+      id: newMessage.id,
+      senderId: currentUser.id,
+      nickname: currentUser.nickname,
+      text: '📷 Image',
+      timestamp: newMessage.timestamp,
+      imageData,
     };
     
     clientRef.current.publish(CHAT_TOPIC, JSON.stringify(messageData));
@@ -183,6 +223,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         users,
         currentUser,
         sendMessage,
+        sendImage,
         setNickname,
         connectionStatus,
       }}
