@@ -1,10 +1,12 @@
 
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
+import mqtt from 'mqtt';
 
-// Simple WebRTC peer connection implementation
-// This is a simplified version for demo purposes
-const PEER_SERVER = 'wss://lovable-chat-signaling.glitch.me';
+// Using a public MQTT broker
+const MQTT_BROKER = 'wss://broker.emqx.io:8084/mqtt';
+const CHAT_TOPIC = 'lovable-chat/public';
+const USERS_TOPIC = 'lovable-chat/users';
 
 type Message = {
   id: string;
@@ -42,13 +44,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected');
-  const socketRef = useRef<WebSocket | null>(null);
+  const clientRef = useRef<mqtt.MqttClient | null>(null);
 
   useEffect(() => {
-    // Clean up WebSocket connection when component unmounts
+    // Clean up MQTT connection when component unmounts
     return () => {
-      if (socketRef.current) {
-        socketRef.current.close();
+      if (clientRef.current) {
+        clientRef.current.end();
       }
     };
   }, []);
@@ -56,18 +58,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const connectToChat = (user: User) => {
     try {
       setConnectionStatus('connecting');
-      // Create WebSocket connection
-      const socket = new WebSocket(PEER_SERVER);
-      socketRef.current = socket;
+      
+      // Create MQTT client connection
+      const client = mqtt.connect(MQTT_BROKER, {
+        clientId: `chat_${user.id}_${Math.random().toString(16).substr(2, 8)}`,
+        clean: true,
+      });
+      
+      clientRef.current = client;
 
-      socket.onopen = () => {
+      client.on('connect', () => {
         setConnectionStatus('connected');
-        // Send join message when connection is established
+        
+        // Subscribe to chat and users topics
+        client.subscribe(CHAT_TOPIC);
+        client.subscribe(USERS_TOPIC);
+        
+        // Announce user join
         const joinMessage = {
           type: 'join',
           user: user,
         };
-        socket.send(JSON.stringify(joinMessage));
+        client.publish(USERS_TOPIC, JSON.stringify(joinMessage));
 
         // Add system message for local user
         const welcomeMessage: Message = {
@@ -77,57 +89,58 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           timestamp: Date.now(),
         };
         setMessages((prevMessages) => [...prevMessages, welcomeMessage]);
-      };
+      });
 
-      socket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-
-        if (data.type === 'join') {
-          // A new user joined
-          if (data.user.id !== user.id) {
-            setUsers((prevUsers) => {
-              if (!prevUsers.some(u => u.id === data.user.id)) {
-                // Add system message about new user
-                const joinMessage: Message = {
-                  id: crypto.randomUUID(),
-                  nickname: 'System',
-                  text: `${data.user.nickname} joined the chat`,
-                  timestamp: Date.now(),
-                };
-                setMessages((prevMessages) => [...prevMessages, joinMessage]);
-                
-                return [...prevUsers, data.user];
-              }
-              return prevUsers;
-            });
+      client.on('message', (topic, payload) => {
+        try {
+          const data = JSON.parse(payload.toString());
+          
+          if (topic === USERS_TOPIC && data.type === 'join') {
+            // A new user joined
+            if (data.user.id !== user.id) {
+              setUsers((prevUsers) => {
+                if (!prevUsers.some(u => u.id === data.user.id)) {
+                  // Add system message about new user
+                  const joinMessage: Message = {
+                    id: crypto.randomUUID(),
+                    nickname: 'System',
+                    text: `${data.user.nickname} joined the chat`,
+                    timestamp: Date.now(),
+                  };
+                  setMessages((prevMessages) => [...prevMessages, joinMessage]);
+                  
+                  return [...prevUsers, data.user];
+                }
+                return prevUsers;
+              });
+            }
+          } else if (topic === CHAT_TOPIC && data.type === 'message') {
+            // Received a chat message
+            if (data.senderId !== user.id) {
+              const newMessage: Message = {
+                id: data.id,
+                nickname: data.nickname,
+                text: data.text,
+                timestamp: data.timestamp,
+              };
+              setMessages((prevMessages) => [...prevMessages, newMessage]);
+            }
           }
-        } else if (data.type === 'message') {
-          // Received a chat message
-          if (data.senderId !== user.id) {
-            const newMessage: Message = {
-              id: data.id,
-              nickname: data.nickname,
-              text: data.text,
-              timestamp: data.timestamp,
-            };
-            setMessages((prevMessages) => [...prevMessages, newMessage]);
-          }
-        } else if (data.type === 'users') {
-          // Received updated user list
-          setUsers(data.users);
+        } catch (error) {
+          console.error('Error parsing message:', error);
         }
-      };
+      });
 
-      socket.onerror = (error) => {
-        console.error('WebSocket error:', error);
+      client.on('error', (error) => {
+        console.error('MQTT error:', error);
         setConnectionStatus('disconnected');
         toast.error('Connection error. Please try refreshing the page.');
-      };
+      });
 
-      socket.onclose = () => {
+      client.on('close', () => {
         setConnectionStatus('disconnected');
         toast.info('Disconnected from chat. Please refresh to reconnect.');
-      };
+      });
     } catch (error) {
       console.error('Failed to connect:', error);
       setConnectionStatus('disconnected');
@@ -151,7 +164,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   
   // Function to send a message
   const sendMessage = (text: string) => {
-    if (!currentUser || text.trim() === '' || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
+    if (!currentUser || text.trim() === '' || !clientRef.current || !clientRef.current.connected) return;
     
     const newMessage: Message = {
       id: crypto.randomUUID(),
@@ -163,7 +176,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Add message to local state
     setMessages((prevMessages) => [...prevMessages, newMessage]);
     
-    // Send message via WebSocket
+    // Send message via MQTT
     const messageData = {
       type: 'message',
       id: newMessage.id,
@@ -173,7 +186,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       timestamp: newMessage.timestamp,
     };
     
-    socketRef.current.send(JSON.stringify(messageData));
+    clientRef.current.publish(CHAT_TOPIC, JSON.stringify(messageData));
   };
   
   return (

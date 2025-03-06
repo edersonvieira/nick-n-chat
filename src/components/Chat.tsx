@@ -17,7 +17,7 @@ const Chat: React.FC = () => {
     <div className="flex flex-col h-full">
       <div className="p-4 border-b border-border/50 flex justify-between items-center">
         <div>
-          <h1 className="text-xl font-semibold">Nick-n-Chat</h1>
+          <h1 className="text-xl font-semibold">MQTT Chat</h1>
           <p className="text-sm text-muted-foreground">You are chatting as <span className="font-medium">{currentUser.nickname}</span></p>
         </div>
         <div className="flex items-center gap-2">
@@ -30,7 +30,7 @@ const Chat: React.FC = () => {
           {connectionStatus === 'connected' && (
             <div className="flex items-center text-green-500 text-sm">
               <div className="h-2 w-2 bg-green-500 rounded-full mr-1"></div>
-              Connected
+              Connected to MQTT
             </div>
           )}
           {connectionStatus === 'disconnected' && (

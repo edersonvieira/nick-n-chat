@@ -26,7 +26,7 @@ const ChatInput: React.FC = () => {
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           placeholder={isDisabled ? "Connecting to chat..." : "Type your message..."}
-          className="chat-input"
+          className="flex-1 p-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
           autoComplete="off"
           disabled={isDisabled}
         />
