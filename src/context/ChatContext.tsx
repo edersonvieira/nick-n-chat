@@ -1,10 +1,9 @@
-
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import mqtt from 'mqtt';
 
-// Using a public MQTT broker
-const MQTT_BROKER = 'wss://broker.emqx.io:8084/mqtt';
+// Using the HiveMQ public MQTT broker
+const MQTT_BROKER = 'wss://broker.hivemq.com:8884/mqtt';
 const CHAT_TOPIC = 'lovable-chat/public';
 const USERS_TOPIC = 'lovable-chat/users';
 
@@ -47,7 +46,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const clientRef = useRef<mqtt.MqttClient | null>(null);
 
   useEffect(() => {
-    // Clean up MQTT connection when component unmounts
     return () => {
       if (clientRef.current) {
         clientRef.current.end();
@@ -59,7 +57,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       setConnectionStatus('connecting');
       
-      // Create MQTT client connection
       const client = mqtt.connect(MQTT_BROKER, {
         clientId: `chat_${user.id}_${Math.random().toString(16).substr(2, 8)}`,
         clean: true,
@@ -69,19 +66,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       client.on('connect', () => {
         setConnectionStatus('connected');
+        toast.success('Connected to HiveMQ MQTT broker!');
         
-        // Subscribe to chat and users topics
         client.subscribe(CHAT_TOPIC);
         client.subscribe(USERS_TOPIC);
         
-        // Announce user join
         const joinMessage = {
           type: 'join',
           user: user,
         };
         client.publish(USERS_TOPIC, JSON.stringify(joinMessage));
 
-        // Add system message for local user
         const welcomeMessage: Message = {
           id: crypto.randomUUID(),
           nickname: 'System',
@@ -96,11 +91,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const data = JSON.parse(payload.toString());
           
           if (topic === USERS_TOPIC && data.type === 'join') {
-            // A new user joined
             if (data.user.id !== user.id) {
               setUsers((prevUsers) => {
                 if (!prevUsers.some(u => u.id === data.user.id)) {
-                  // Add system message about new user
                   const joinMessage: Message = {
                     id: crypto.randomUUID(),
                     nickname: 'System',
@@ -115,7 +108,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               });
             }
           } else if (topic === CHAT_TOPIC && data.type === 'message') {
-            // Received a chat message
             if (data.senderId !== user.id) {
               const newMessage: Message = {
                 id: data.id,
@@ -148,7 +140,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Function to set the current user's nickname
   const setNickname = (nickname: string) => {
     if (nickname.trim() === '') return;
     
@@ -158,11 +149,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCurrentUser(newUser);
     setUsers((prevUsers) => [...prevUsers, newUser]);
     
-    // Connect to the chat server when nickname is set
     connectToChat(newUser);
   };
   
-  // Function to send a message
   const sendMessage = (text: string) => {
     if (!currentUser || text.trim() === '' || !clientRef.current || !clientRef.current.connected) return;
     
@@ -173,10 +162,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       timestamp: Date.now(),
     };
     
-    // Add message to local state
     setMessages((prevMessages) => [...prevMessages, newMessage]);
     
-    // Send message via MQTT
     const messageData = {
       type: 'message',
       id: newMessage.id,
